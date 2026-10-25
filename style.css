@@ -83,13 +83,6 @@ h1 {
   line-height: 1;
 }
 
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
 .select-wrap {
   position: relative;
   min-width: 0;
@@ -118,7 +111,7 @@ h1 {
   padding: 8px 30px 8px 12px;
   font-weight: 500;
   font-size: 14px;
-  max-width: 200px;
+  max-width: 240px;
   min-width: 0;
   text-overflow: ellipsis;
   cursor: pointer;
@@ -141,27 +134,20 @@ h1 {
 .btn.accent { background: var(--accent); color: var(--bg); }
 .btn.danger { color: var(--accent); }
 
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px;
-  width: 36px;
-}
-.icon-btn svg { fill: currentColor; }
-.icon-btn[aria-expanded="true"] { color: var(--accent); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
 
-/* Cards: save form + manage panel */
+/* My tunings */
 
 .card {
   background: var(--surface);
   border-radius: 12px;
   padding: 12px;
-  margin-bottom: 12px;
+  margin-top: 20px;
 }
 
 .card-label {
   display: block;
+  margin-top: 0;
   font-family: var(--display);
   font-weight: 600;
   font-size: 13px;
@@ -171,7 +157,16 @@ h1 {
   margin-bottom: 8px;
 }
 
-.save-row { display: flex; gap: 6px; }
+.mine-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.mine-head .card-label { flex: 1; margin-bottom: 0; }
+.btn[aria-pressed="true"] { color: var(--accent); }
+
+.save-row { display: flex; gap: 6px; margin-bottom: 8px; }
 
 input[type="text"] {
   flex: 1;
@@ -189,10 +184,25 @@ input[type="text"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  border-top: 1px solid var(--raise);
+  min-height: 44px;
+  padding: 4px 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
+  cursor: pointer;
 }
-.saved-list li:first-child { border-top: 0; }
+.saved-list li:hover { background: var(--raise); }
+.saved-list li.current .saved-name { color: var(--accent); }
+.saved-list li.current::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: -2px;
+}
+.saved-list li .btn { display: none; }
+.mine.editing .saved-list li .btn { display: inline-block; }
+.mine.editing .saved-list li { cursor: default; }
 
 .saved-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .saved-notes { font-family: var(--display); font-size: 14px; letter-spacing: 0.06em; color: var(--dim); }
@@ -330,29 +340,33 @@ input[type="text"] {
   .line.vib { animation-name: glow-only; }
 }
 
-.loop {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: none;
-  border: 0;
-  border-radius: 8px;
-  color: var(--muted);
-  cursor: pointer;
-}
-.loop svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.loop:hover { color: var(--dim); }
-.loop[aria-pressed="true"] { color: var(--accent); background: var(--raise); }
-
 .row.looping {
   --glow-rest: 0 0 7px 0 color-mix(in srgb, var(--c) 55%, transparent);
   background: color-mix(in srgb, var(--c) 7%, transparent);
 }
 
 /* Bottom controls */
+
+.loop-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--raise);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+.loop-mode svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.loop-mode[aria-pressed="true"] { color: var(--accent); background: var(--raise); border-color: var(--raise); }
+.loop-mode[aria-pressed="false"] ~ .interval { opacity: 0.4; }
+
 
 .strum {
   display: block;
@@ -375,23 +389,12 @@ input[type="text"] {
 .loopbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   min-height: 36px;
   margin-top: 12px;
 }
 
-.interval { display: flex; align-items: center; gap: 4px; }
-
-.interval-label {
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 13px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--dim);
-  margin-right: 4px;
-}
+.interval { display: flex; align-items: center; gap: 4px; margin-right: auto; }
 
 .seg {
   background: none;
@@ -416,4 +419,10 @@ input[type="text"] {
 
 @media (max-width: 440px) {
   .hint { display: none; }
+}
+
+.home-link { margin: 20px 0 0; text-align: center; font-size: 12px; }
+.home-link a { color: var(--muted); }
+@media (display-mode: standalone) {
+  .home-link { display: none; }
 }

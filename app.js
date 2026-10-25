@@ -11,17 +11,46 @@ const AUTO = 'auto';
 const AUTO6 = () => Array(6).fill(AUTO);
 
 const parseNotes = s => s.match(/[A-G]#?/g);
-const PRESETS = [
-  ['standard', 'Standard', 'EADGBE'],
-  ['drop-d', 'Drop D', 'DADGBE'],
-  ['drop-c', 'Drop C', 'CGCFAD'],
-  ['half-down', 'Half Step Down', 'D#G#C#F#A#D#'],
-  ['full-down', 'Full Step Down', 'DGCFAD'],
-  ['dadgad', 'DADGAD', 'DADGAD'],
-  ['open-g', 'Open G', 'DGDGBD'],
-  ['open-d', 'Open D', 'DADF#AD'],
-  ['open-e', 'Open E', 'EBEG#BE'],
-].map(([id, name, notes]) => ({ id, name, notes: parseNotes(notes), octaves: AUTO6() }));
+
+// [id, name, notes low to high, octaves where auto would pick the wrong one]
+const PRESET_GROUPS = [
+  ['Standard', [
+    ['standard', 'Standard', 'EADGBE'],
+    ['half-down', 'Half Step Down', 'D#G#C#F#A#D#'],
+    ['full-down', 'Full Step Down', 'DGCFAD'],
+    ['c-sharp-std', 'C# Standard', 'C#F#BEG#C#'],
+    ['c-std', 'C Standard', 'CFA#D#GC'],
+    ['b-std', 'B Standard', 'BEADF#B'],
+  ]],
+  ['Drop', [
+    ['drop-d', 'Drop D', 'DADGBE'],
+    ['double-drop-d', 'Double Drop D', 'DADGBD'],
+    ['drop-c-sharp', 'Drop C#', 'C#G#C#F#A#D#'],
+    ['drop-c', 'Drop C', 'CGCFAD'],
+    ['drop-b', 'Drop B', 'BF#BEG#C#'],
+    ['drop-a', 'Drop A', 'AEADF#B', [1, AUTO, AUTO, AUTO, AUTO, AUTO]],
+  ]],
+  ['Open', [
+    ['open-a', 'Open A', 'EAEAC#E'],
+    ['open-b', 'Open B', 'BF#BF#BD#'],
+    ['open-c', 'Open C', 'CGCGCE'],
+    ['open-d', 'Open D', 'DADF#AD'],
+    ['open-dm', 'Open D Minor', 'DADFAD'],
+    ['open-e', 'Open E', 'EBEG#BE'],
+    ['open-g', 'Open G', 'DGDGBD'],
+    ['open-gm', 'Open G Minor', 'DGDGA#D'],
+  ]],
+  ['Other', [
+    ['dadgad', 'DADGAD', 'DADGAD'],
+    ['c6', 'C6', 'CACGCE'],
+    ['all-fourths', 'All Fourths', 'EADGCF'],
+    ['nst', 'New Standard', 'CGDAEG'],
+    ['nashville', 'Nashville (high strung)', 'EADGBE', [3, 3, 4, 4, 3, 4]],
+  ]],
+].map(([label, list]) => [label, list.map(([id, name, notes, octaves]) => ({
+  id, name, notes: parseNotes(notes), octaves: octaves || AUTO6(),
+}))]);
+const PRESETS = PRESET_GROUPS.flatMap(([, list]) => list);
 
 const BUFFER_SECONDS = 4;
 const STRUM_GAP = 0.055;
@@ -37,6 +66,7 @@ const state = {
   notes: [...PRESETS[0].notes],
   octaves: AUTO6(),
   selected: 'b:standard',
+  loop: true,          // tapping a string keeps it going until you stop it
   loopInterval: 2.5,
 };
 let saved = [];
@@ -312,62 +342,67 @@ function silence(i) {
   clearVisuals(i);
 }
 
-// ---------- Loops (look-ahead scheduler on AudioContext time) ----------
+// ---------- Loop (one string at a time, look-ahead scheduler on AudioContext time) ----------
 
-const loops = new Map(); // string index -> { next }
+let looping = -1;    // string index, or -1
+let loopNext = 0;    // AudioContext time of the next pluck
 let loopTimer = 0;
 
 function tick() {
-  if (!loops.size || !ctx) {
+  if (looping < 0 || !ctx) {
     clearInterval(loopTimer);
     loopTimer = 0;
     return;
   }
   const now = ctx.currentTime;
-  const horizon = now + LOOKAHEAD;
-  for (const [i, loop] of loops) {
-    // If the clock jumped (context was suspended, tab stalled), restart the phase.
-    if (loop.next < now - 0.05) loop.next = now + 0.02;
-    while (loop.next < horizon) {
-      pluck(i, loop.next);
-      loop.next += state.loopInterval;
-    }
+  // If the clock jumped (context was suspended, tab stalled), restart the phase.
+  if (loopNext < now - 0.05) loopNext = now + 0.02;
+  while (loopNext < now + LOOKAHEAD) {
+    pluck(looping, loopNext);
+    loopNext += state.loopInterval;
   }
 }
 
-function toggleLoop(i, on = !loops.has(i)) {
-  if (on && !loops.has(i)) {
-    const ac = audio();
-    loops.set(i, { next: ac.currentTime + 0.02 });
-    tick();
-    if (!loopTimer) loopTimer = setInterval(tick, TICK_MS);
-  } else if (!on && loops.has(i)) {
-    loops.delete(i);
-    cancelFuture(i);
-  }
-  renderLoops();
+function startLoop(i) {
+  if (looping >= 0 && looping !== i) silence(looping);
+  looping = i;
+  loopNext = audio().currentTime + 0.02;
+  tick();
+  if (!loopTimer) loopTimer = setInterval(tick, TICK_MS);
+  renderLoop();
 }
 
-function stopAllLoops() {
-  for (const i of loops.keys()) silence(i);
-  loops.clear();
+// hard: cut the sound now. Otherwise just stop re-plucking and let the last one ring out.
+function stopLoop(hard) {
+  if (looping < 0) return;
+  if (hard) silence(looping);
+  else cancelFuture(looping);
+  looping = -1;
   clearInterval(loopTimer);
   loopTimer = 0;
-  renderLoops();
+  renderLoop();
+}
+
+// What a tap on a string (or its number key) does.
+function playString(i) {
+  if (!state.loop) return pluck(i);
+  if (looping === i) return stopLoop(false);
+  startLoop(i);
+}
+
+function setLoopMode(on) {
+  state.loop = on;
+  if (!on) stopLoop(false);
+  renderLoop();
+  saveState();
 }
 
 function setLoopInterval(sec) {
   if (!INTERVALS.includes(sec)) return;
   const old = state.loopInterval;
   state.loopInterval = sec;
-  if (ctx) {
-    const now = ctx.currentTime;
-    for (const loop of loops.values()) {
-      const last = loop.next - old;
-      loop.next = Math.max(last + sec, now + 0.02);
-    }
-  }
-  renderInterval();
+  if (ctx && looping >= 0) loopNext = Math.max(loopNext - old + sec, ctx.currentTime + 0.02);
+  renderLoop();
   saveState();
 }
 
@@ -402,17 +437,16 @@ function vibrate(i) {
 const $ = sel => document.querySelector(sel);
 const stringsEl = $('#strings');
 const tuningSel = $('#tuning');
+const mineEl = $('.mine');
 const saveBtn = $('#save');
+const editBtn = $('#edit');
 const saveForm = $('#save-form');
 const saveName = $('#save-name');
-const manageBtn = $('#manage');
-const managePanel = $('#manage-panel');
 const savedList = $('#saved-list');
 const savedEmpty = $('#saved-empty');
 const manageStatus = $('#manage-status');
-const stopAllBtn = $('#stop-all');
-
-const LOOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>';
+const loopModeBtn = $('#loop-mode');
+const stopBtn = $('#stop');
 
 function buildRows() {
   for (let i = 0; i < 6; i++) {
@@ -432,8 +466,7 @@ function buildRows() {
         </select>
         <span class="oct-val" aria-hidden="true"></span>
       </span>
-      <button type="button" class="string"><span class="line"></span></button>
-      <button type="button" class="loop" aria-pressed="false" aria-label="Loop string ${n}" title="Loop string ${n} (Shift+${n})">${LOOP_ICON}</button>`;
+      <button type="button" class="string"><span class="line"></span></button>`;
 
     const r = {
       el: row,
@@ -443,15 +476,13 @@ function buildRows() {
       octVal: row.querySelector('.oct-val'),
       string: row.querySelector('.string'),
       line: row.querySelector('.line'),
-      loop: row.querySelector('.loop'),
     };
     rows.push(r);
 
     row.addEventListener('click', e => {
-      if (e.target.closest('select, .loop')) return;
-      pluck(i);
+      if (e.target.closest('select')) return;
+      playString(i);
     });
-    r.loop.addEventListener('click', () => toggleLoop(i));
     r.line.addEventListener('animationend', () => r.line.classList.remove('vib'));
 
     r.note.addEventListener('change', () => {
@@ -472,7 +503,7 @@ function afterStringEdit(i) {
   renderAll();
   saveState();
   // A looping string just picks up the new pitch on its next pluck.
-  if (!loops.has(i)) pluck(i);
+  if (looping !== i) pluck(i);
 }
 
 function renderRows() {
@@ -494,22 +525,41 @@ function renderRows() {
 function renderTuningSelect() {
   tuningSel.textContent = '';
   if (state.selected === 'custom') tuningSel.add(new Option('Custom', 'custom'));
-  for (const p of PRESETS) tuningSel.add(new Option(p.name, 'b:' + p.id));
-  if (saved.length) {
-    const group = document.createElement('optgroup');
-    group.label = 'My tunings';
-    for (const t of saved) group.appendChild(new Option(t.name, 'u:' + t.id));
-    tuningSel.appendChild(group);
-  }
+  const group = (label, list, prefix) => {
+    const g = document.createElement('optgroup');
+    g.label = label;
+    for (const t of list) g.appendChild(new Option(t.name, prefix + t.id));
+    tuningSel.appendChild(g);
+  };
+  for (const [label, list] of PRESET_GROUPS) group(label, list, 'b:');
+  if (saved.length) group('My tunings', saved, 'u:');
   tuningSel.value = state.selected;
   saveBtn.disabled = state.selected !== 'custom';
+}
+
+function selectTuning(key) {
+  const t = lookup(key);
+  if (!t) return;
+  applyTuning(t);
+  state.selected = key;
+  renderAll();
+  saveState();
 }
 
 function renderSavedList() {
   savedList.textContent = '';
   savedEmpty.hidden = saved.length > 0;
+  editBtn.hidden = saved.length === 0;
+  if (!saved.length) setEditing(false);
+
   for (const t of saved) {
     const li = document.createElement('li');
+    li.classList.toggle('current', state.selected === 'u:' + t.id);
+    li.addEventListener('click', e => {
+      if (mineEl.classList.contains('editing') || e.target.closest('button, input')) return;
+      selectTuning('u:' + t.id);
+    });
+
     const name = document.createElement('span');
     name.className = 'saved-name';
     name.textContent = t.name;
@@ -519,13 +569,13 @@ function renderSavedList() {
 
     const rename = document.createElement('button');
     rename.type = 'button';
-    rename.className = 'btn';
+    rename.className = 'btn small';
     rename.textContent = 'Rename';
     rename.addEventListener('click', () => startRename(li, t));
 
     const del = document.createElement('button');
     del.type = 'button';
-    del.className = 'btn';
+    del.className = 'btn small';
     del.textContent = 'Delete';
     let armed = 0;
     del.addEventListener('click', () => {
@@ -542,6 +592,12 @@ function renderSavedList() {
     li.append(name, notes, rename, del);
     savedList.appendChild(li);
   }
+}
+
+function setEditing(on) {
+  mineEl.classList.toggle('editing', on);
+  editBtn.setAttribute('aria-pressed', String(on));
+  editBtn.textContent = on ? 'Done' : 'Edit';
 }
 
 function startRename(li, t) {
@@ -582,16 +638,11 @@ function deleteTuning(id) {
   renderAll();
 }
 
-function renderLoops() {
-  rows.forEach((r, i) => {
-    const on = loops.has(i);
-    r.el.classList.toggle('looping', on);
-    r.loop.setAttribute('aria-pressed', String(on));
-  });
-  stopAllBtn.hidden = loops.size === 0;
-}
-
-function renderInterval() {
+function renderLoop() {
+  rows.forEach((r, i) => r.el.classList.toggle('looping', looping === i));
+  loopModeBtn.setAttribute('aria-pressed', String(state.loop));
+  loopModeBtn.setAttribute('aria-label', state.loop ? 'Looping on' : 'Looping off');
+  stopBtn.hidden = looping < 0;
   document.querySelectorAll('.seg').forEach(b => {
     b.setAttribute('aria-pressed', String(Number(b.dataset.interval) === state.loopInterval));
   });
@@ -601,8 +652,7 @@ function renderAll() {
   renderRows();
   renderTuningSelect();
   renderSavedList();
-  renderLoops();
-  renderInterval();
+  renderLoop();
 }
 
 function applyTuning(t) {
@@ -612,14 +662,7 @@ function applyTuning(t) {
 
 // ---------- Events ----------
 
-tuningSel.addEventListener('change', () => {
-  const t = lookup(tuningSel.value);
-  if (!t) return;
-  applyTuning(t);
-  state.selected = tuningSel.value;
-  renderAll();
-  saveState();
-});
+tuningSel.addEventListener('change', () => selectTuning(tuningSel.value));
 
 saveBtn.addEventListener('click', () => {
   saveForm.hidden = false;
@@ -645,12 +688,7 @@ saveForm.addEventListener('submit', e => {
   renderAll();
 });
 
-manageBtn.addEventListener('click', () => {
-  const open = managePanel.hidden;
-  managePanel.hidden = !open;
-  manageBtn.setAttribute('aria-expanded', String(open));
-  manageStatus.textContent = '';
-});
+editBtn.addEventListener('click', () => setEditing(!mineEl.classList.contains('editing')));
 
 $('#export').addEventListener('click', () => {
   const data = { app: 'pluck', version: 1, exported: new Date().toISOString(), tunings: saved };
@@ -697,8 +735,12 @@ importFile.addEventListener('change', async () => {
   }
 });
 
-$('#strum').addEventListener('click', strum);
-stopAllBtn.addEventListener('click', stopAllLoops);
+$('#strum').addEventListener('click', () => {
+  stopLoop(true);
+  strum();
+});
+stopBtn.addEventListener('click', () => stopLoop(true));
+loopModeBtn.addEventListener('click', () => setLoopMode(!state.loop));
 
 document.querySelectorAll('.seg').forEach(b => {
   b.addEventListener('click', () => setLoopInterval(Number(b.dataset.interval)));
@@ -709,23 +751,25 @@ document.addEventListener('keydown', e => {
   if (active && active.matches('select, input, textarea')) return;
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
 
-  // e.code so Shift+1 still reads as "1" rather than "!".
   const digit = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
+  const key = e.key.toLowerCase();
   if (digit) {
     e.preventDefault();
-    const i = 6 - Number(digit[1]);
-    if (e.shiftKey) toggleLoop(i);
-    else pluck(i);
-  } else if (e.key.toLowerCase() === 's' && !e.shiftKey) {
+    playString(6 - Number(digit[1]));
+  } else if (key === 's') {
     e.preventDefault();
+    stopLoop(true);
     strum();
+  } else if (key === 'l') {
+    e.preventDefault();
+    setLoopMode(!state.loop);
   } else if (e.key === 'Escape') {
-    stopAllLoops();
+    stopLoop(true);
   }
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && loops.size) stopAllLoops();
+  if (document.hidden) stopLoop(true);
 });
 
 // ---------- Start ----------
@@ -742,6 +786,7 @@ renderAll();
     const t = cleanTuning({ notes: s.notes, octaves: s.octaves });
     if (t) applyTuning(t);
     if (typeof s.selected === 'string') state.selected = s.selected;
+    if (typeof s.loop === 'boolean') state.loop = s.loop;
     if (INTERVALS.includes(s.loopInterval)) state.loopInterval = s.loopInterval;
   }
   state.selected = matchSelection();

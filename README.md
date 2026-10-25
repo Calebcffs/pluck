@@ -6,11 +6,14 @@ Plain HTML/CSS/JS. No build step, nothing to install.
 
 ## Using it
 
-- Click a string (or press **1-6**, where 1 is high E) to hear it. **S** strums all six.
+- Tap a string (or press **1-6**, where 1 is high E). With **Loop** on (the default) it keeps re-plucking every 2.5s so you can tune against it. Tap a different string and the loop jumps to that one. Tap the same string again, hit **Stop** or press **Esc** to stop.
+- Turn **Loop** off (or press **L**) and a tap just plucks once. **S** strums all six.
 - Change any string's note with its dropdown. The little number next to it is the octave, picked automatically. Tap it to pin a specific octave (handy for baritone or weird setups).
-- **Loop**: the icon at the end of each row keeps that string re-plucking until you turn it off. You can loop several at once, like droning the A while you tune the D. **Shift+1-6** toggles a loop, **Esc** stops them all. Loops also stop if you switch away from the app.
-- **Save**: once the strings don't match a known tuning, Save lights up. Your tunings show under "My tunings" in the dropdown.
-- **...** menu: rename or delete saved tunings, and export/import them as a JSON file to back up or move between devices.
+- The tuning dropdown has 25 presets: standard and down-tuned, drop, open, plus DADGAD, C6, all fourths, new standard and Nashville (high strung).
+- **My tunings** (under the strings): once the strings don't match a known tuning, **Save current** lights up. Tap a saved one to load it. **Edit** shows rename and delete. **Export** / **Import** move them between devices as a JSON file.
+- Loops stop if you switch away from the app.
+
+Also lives at https://sortafun.org/pluck/ (a copy in the sortafun repo).
 
 ## Run it locally
 
